@@ -183,10 +183,10 @@ class Bridge:
 	def send_mode(self, channel, mode, user):
 		self.send_from_me('MODE', [channel, mode, user])
 
-	def send_numeric(self, numeric, params=[], text=''):
+	def send_numeric(self, numeric, params=[], text=None):
 		self.irc.send_cmd(self.servername, numeric,
 			[self.nickname, *params], text)
-	def send_from_me(self, command, params=[], text=''):
+	def send_from_me(self, command, params=[], text=None):
 		self.irc.send_cmd(self.myuser(), command, params, text)
 
 	#############################

@@ -70,7 +70,7 @@ class IRC:
 			len('/r/n')
 		)
 
-		for line in text.splitlines():
+		for line in (text.splitlines() or ['']):
 			for split in split_utf8(line, max_size):
 				message = (prefix + split + suffix + '\r\n').encode('utf-8')
 				messages.append(message)
@@ -79,18 +79,17 @@ class IRC:
 
 		return messages
 
-	def send_cmd(self, source, command, params=[], text=''):
-		text = str(text)
+	def send_cmd(self, source, command, params=[], text=None):
 		message = []
 		if source:
 			message.append(':' + str(source))
 		message.append(command)
 		message.extend(params)
-		if text:
-			message.append(':')
-			self.send(text, ' '.join(map(str, message)))
-		else:
+		if text is None:
 			self.send(' '.join(map(str, message)))
+		else:
+			message.append(':')
+			self.send(str(text), ' '.join(map(str, message)))
 
 	def _on_PING(self, message):
 		if len(message.params) > 0:
