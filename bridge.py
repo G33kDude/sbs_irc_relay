@@ -41,7 +41,7 @@ class Bridge:
 		try:
 			self.irc.handle(line)
 		except:
-			self.handle_exception()
+			self.debug_traceback()
 
 	def debug_traceback(self):
 		self.debug(traceback.format_exc())
