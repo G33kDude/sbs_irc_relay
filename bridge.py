@@ -48,7 +48,7 @@ class Bridge:
 
 	def debug(self, data):
 		if self.connected:
-			self.send_numeric('PRIVMSG', text=str(data))
+			self.send_numeric('NOTICE', text=str(data))
 		else:
 			print(data)
 
@@ -248,23 +248,29 @@ class Bridge:
 			if split[0] == 'ACTION':
 				text = '/me ' + split[1]
 
+		# Find the appropriate destination (channel, user, etc)
+		target = message.params[0]
+		if target in self.channels:
+			tag = target[1:] # Trim channel prefix
+		else:
+			# TODO: more efficient username lookup
+			usernames = (user['username'] for user in self.sbs.users.values())
+			if target in usernames:
+				tag = 'offtopic' # TODO: make this value configurable
+				text = '/pm {} {}'.format(target, text)
+			else:
+				self.debug('ERROR: unrecognized destination:')
+				self.debug(message.message)
+				return
+
 		self.sbs.ws_send({
 			"type": "message",
 			"text": text,
 			"key": self.sbs.token,
-			"tag": message.params[0][1:]
+			"tag": tag
 		})
 
 	def sbs_on_message(self, data):
-		channel = '#' + data['tag']
-		if channel not in self.joinedto: return
-
-		# Ignore messages from self
-		if (data['type'] == 'message' or
-			(data['type'] == 'module' and data['module'] == 'fun')):
-			if data['sender']['uid'] == self.sbs.userid:
-				return
-
 		# Attempt to decode
 		if hasattr(decoders, 'decode_' + data['encoding']):
 			decoder = getattr(decoders, 'decode_' + data['encoding'])
@@ -273,13 +279,81 @@ class Bridge:
 			self.debug('Unknown encoding: {}'.format(data['encoding']))
 			message = data['message']
 
-		# Handle /me
-		if data['type'] == 'module' and data['module'] == 'fun':
-			message = '\x01ACTION {}\x01'.format(message.split(' ', 1)[1])
+		# Call the appropriate handler
+		if hasattr(self, 'sbs_msg_' + data['type'] + '_' + data['subtype']):
+			handler = getattr(self, 'sbs_msg_' + data['type'] + '_' + data['subtype'])
+			handler(data, message)
+		else:
+			self.debug('Unknown message type:')
+			self.debug(data)
 
-		# Forward the message through
+	def sbs_msg_message_none(self, data, message):
+		# Ignore messages sent by yourself
+		if data['sender']['uid'] == self.sbs.userid:
+			return
+		# TODO: handle 'any'
 		self.irc.send_cmd(self.fulluser(data['sender']['uid']),
-			'PRIVMSG', [channel], message)
+			'PRIVMSG', ['#' + data['tag']], message)
+
+	def sbs_msg_module_none(self, data, message):
+		if data['module'] == 'pm':
+			# Ignore pms sent by yourself
+			# TODO: don't do this for the initial message log?
+			if data['sender']['uid'] == self.sbs.userid:
+				return
+
+			# Find sender and recipient
+			sender = data['sender']['uid']
+			data['recipients'].remove(sender)
+			if len(data['recipients']) != 1:
+				self.debug('ERROR: multiple recipients for PM!')
+				self.debug(data)
+				return
+			recipient = data['recipients'][0]
+
+			# Send the message from the sender to the recipient
+			# Skip the first line to ignore the module generated src/dest
+			for line in message.splitlines()[1:]:
+				self.irc.send_cmd(self.fulluser(sender), 'PRIVMSG',
+					[self.sbs.users[recipient]['username']], line)
+		elif data['module'] == 'fun':
+			# Ignore /me message sent by yourself
+			if data['sender']['uid'] == self.sbs.userid:
+				return
+
+			# Format the message for /me
+			# TODO: make sure user is in channel
+			# TODO: handle 'any'
+			message = message.split(' ', 1)[1]
+			self.irc.send(
+				text=message,
+				prefix=':{} PRIVMSG #{} :\x01ACTION '.format(
+					self.fulluser(data['sender']['uid']),
+					data['tag']
+				),
+				suffix='\x01'
+			)
+		elif data['module'] == 'global':
+			self.irc.send_cmd(self.servername,
+				'NOTICE', [self.nickname], message)
+		else:
+			self.debug('Unkown module message')
+			self.debug(data)
+
+	# Ignore system generated join and leave messages
+	def sbs_msg_system_join(self, data, message): pass
+	def sbs_msg_system_leave(self, data, message): pass
+	def sbs_msg_system_none(self, data, message):
+		user = data['sender']['username']
+		if message in ('{} has entered the chat.'.format(user),
+			'{} has left the chat.'.format(user)):
+			return
+
+		self.debug('Unknown system message')
+		self.debug(data)
+
+	def sbs_msg_system_welcome(self, data, message):
+		self.irc.send_cmd(self.servername, 'NOTICE', [self.nickname], message)
 
 	def sbs_on_userList(self, data):
 		self.try_update_channels()
