@@ -291,6 +291,11 @@ class Bridge:
 		# Ignore messages sent by yourself
 		if data['sender']['uid'] == self.sbs.userid:
 			return
+
+		# Make greentext green
+		if message.startswith('>'):
+			message = '\x033' + message
+
 		# TODO: handle 'any'
 		self.irc.send_cmd(self.fulluser(data['sender']['uid']),
 			'PRIVMSG', ['#' + data['tag']], message)
