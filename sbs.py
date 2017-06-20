@@ -25,14 +25,26 @@ class SBS:
 
 	def login(self, username, password):
 		"""Logs into the web server and saves a session ID"""
+
+		# Due to some security updates a session ID is required to log in.
+		# A session ID is generated for any visited page, so send a GET request
+		# to this page even though it doesn't exist so we can use the cookie
+		r = requests.get(self.query_endpoint)
+		self.session = r.cookies['PHPSESSID']
+
+		# Authenticate
 		r = requests.post(self.query_endpoint + '/submit/login',
+			params={
+				'session': self.session
+			},
 			data={
 				'username': username,
 				'password': hashlib.md5(password.encode('utf-8')).hexdigest(),
 			}
 		)
+
+		# Save the resulting userid and username for later use
 		result = r.json()
-		self.session = result['result']
 		self.userid = result['requester']['uid']
 		self.username = result['requester']['username']
 
